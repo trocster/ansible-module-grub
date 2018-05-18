@@ -1,7 +1,11 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
-
+#
 # (c) 2014, William Leemans <willie@elaba.net>
+#
+# from:  https://github.com/bushvin/ansible-module-grub
+# 
+
 
 import datetime
 import os
@@ -102,8 +106,6 @@ class Grub(object):
 
         self._get_grub_version()
 
-        self.grub_bin_version = 0.99
-
         if self.config_file is None and self.grub_bin_version >= 1:
             self.config_file = "/etc/default/grub"
         elif self.config_file is None and self.grub_bin_version > 0.9 and self.grub_bin_version < 1:
@@ -167,8 +169,14 @@ class Grub(object):
 
     def _kernel_remove_option(self, options):
         t = self._kernel_options_tolist(options)
-        t = [ (key, val) for key, val in t if key != self.koption or ( key == self.koption and val != self.kvalue ) ]
-        return self._kernel_options_tostring(t)
+        u = []
+        # t = [ (key, val) for key, val in t if key != self.koption or ( key == self.koption and val != self.kvalue ) ]
+        for key, val in (t):
+            # if key is not of interest just append
+            if key != self.koption:
+                u.append((str(key),str(val)))
+                
+        return self._kernel_options_tostring(u)
 
     def _kernel_set_option(self, options):
         t = self._kernel_options_tolist(options)
@@ -207,8 +215,7 @@ class Grub(object):
         
     def _grub_modify_kernel_options(self):
         newfile = ""
-        
-        for line in self.config_new:
+        for line in self.config_new.splitlines():
             if re.compile(r'^\s*kernel ').search(line) is not None:
                 t = line.split()
                 k = t[1]
@@ -241,7 +248,7 @@ class Grub(object):
         for line in self.config_new.splitlines():
             if re.compile(r'^\s*GRUB_TIMEOUT=').search(line) is not None:
                 line = re.sub(r'(\s*GRUB_TIMEOUT)=.*$', r'\1="%s"' % self.timeout, line)
-            newfile = newfile + line + "\n"
+            newfile = newfile + line
         self.config_new = newfile
 
     def _grub_set_default(self):
@@ -249,7 +256,7 @@ class Grub(object):
         for line in self.config_new.splitlines():
             if re.compile(r'^\s*default=').search(line) is not None:
                 line = re.sub(r'(\s*default=).*$', r'\1%s' % self.default, line)
-            newfile = newfile + line + "\n"
+            newfile = newfile + line
         self.config_new = newfile
         
     def _grub_set_timeout(self):
@@ -257,7 +264,7 @@ class Grub(object):
         for line in self.config_new.splitlines():
             if re.compile(r'^\s*timeout=').search(line) is not None:
                 line = re.sub(r'(\s*timeout)=.*$', r'\1=%s' % self.timeout, line)
-            newfile = newfile + line + "\n"
+            newfile = newfile + line
         self.config_new = newfile
         
     def remove_kernel_option(self):
@@ -283,26 +290,40 @@ class Grub(object):
             self._grub2_set_timeout()
         elif self.grub_bin_version > 0.9 and self.grub_bin_version < 1:
             self._grub_set_timeout()
-        
-    def save_config(self, contents):
+
+    def save_config(self):
         try: 
             with open(self.config_file, "w") as f:
-                f.write(contents)
+                f.write(self.config_new)
         except:
             return ( False, "Couldn't save config" )
 
         if self.grub_bin_version >= 1:
             return self._grub2_refresh_menu()
+        
+        return (True, "grub config saved")
+        
     
     def backup_config(self):
         try:
-            shutil.copy(self.config_file, "%s.%s" % ( self.config_file, datetime.datetime.now().strftime("%y%m%d%H%M")))
+
+            # per task file backup, Over the top, but how to backup entire task 
+            # sequence as one if module runs per task ?
+            suffix = datetime.datetime.now().strftime("%y%m%d%H%M") + "-" + self.koption
+            shutil.copy(self.config_file, "%s.%s" % ( self.config_file, suffix))
             return True
         except:
             return False
 
     def haschanged(self):
         return self.config_old != self.config_new
+
+def xstr(s):
+    if s is None:
+        return ''
+    else:
+        return str(s)
+
         
 
 def main():
@@ -320,6 +341,7 @@ def main():
     )
 
     grub = Grub(module)
+
     if not grub.exists:
         module.fail_json(msg="%s couldn't be found" % grub.config_file )
 
@@ -353,7 +375,7 @@ def main():
         if not result:
             module.fail_json(msg=msg)
 
-    module.exit_json(changed=grub.haschanged(), msg=msg, **result)
+    module.exit_json(changed=grub.haschanged(), msg=msg)
 
 # import module snippets
 from ansible.module_utils.basic import *
