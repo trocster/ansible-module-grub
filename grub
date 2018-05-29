@@ -13,6 +13,7 @@ import re
 import subprocess
 import shutil
 import datetime
+import q
 
 DOCUMENTATION = """
 ---
@@ -103,6 +104,8 @@ class Grub(object):
         self.grub_bin_install  = None
         self.grub_bin_mkconfig = None
         self.grub_bin_version  = -1
+        self.distro = None
+        self.release  = None
 
         self._get_grub_version()
 
@@ -119,6 +122,14 @@ class Grub(object):
 
         self.config_new = self.config_old
 
+    # from: https://github.com/ansible/ansible/blob/devel/lib/ansible/module_utils/basic.py
+    def _get_distribution(self):
+        self.distro = get_distribution()
+
+    def _get_release(self):
+        self.release = get_distribution_version()
+
+        
     def _get_grub_version(self):
         for path in os.environ['PATH'].split(os.pathsep):
             path = path.strip('"')
@@ -227,13 +238,24 @@ class Grub(object):
             newfile = newfile + line + "\n"
         self.config_new = newfile
 
+
     def _grub2_refresh_menu(self):
-        p = subprocess.Popen([self.grub_bin_mkconfig, "-o", "/boot/grub2/grub.cfg"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        out, err = p.communicate()
-        if err != 0:
+        centos = re.compile("^centos", re.IGNORECASE);
+        rhel = re.compile("^red\ hat", re.IGNORECASE);
+
+        if self.distro == "Ubuntu" or self.distro == "Debian":
+            p = subprocess.Popen(["/usr/sbin/update-grub"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            out, err = p.communicate()
+      
+        elif centos.match(self.distro) or rhel.match(self.distro):
+            p = subprocess.Popen([self.grub_bin_mkconfig, "-o", "/boot/grub2/grub.cfg"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            out, err = p.communicate()
+
+        if p.returncode == 0:
             return ( True, "" )
         else:
-            return ( False, "Couln't make new config" )
+            return ( False, "Couln't make new config: " + err )
+
 
     def _grub2_set_default(self):
         newfile = ""
@@ -298,17 +320,19 @@ class Grub(object):
         except:
             return ( False, "Couldn't save config" )
 
-        if self.grub_bin_version >= 1:
+        if self.grub_bin_version >= 2:
             return self._grub2_refresh_menu()
-        
+        elif self.grub_bin_version >= 1.98 and self.distro == "Ubuntu":
+            #ubuntu has some very curios grub versioning 1.98 == 2.00 !
+            return self._grub2_refresh_menu()
+
         return (True, "grub config saved")
         
     
     def backup_config(self):
         try:
-
-            # per task file backup, Over the top, but how to backup entire task 
-            # sequence as one if module runs per task ?
+            # per task backups, OTT !, but to backup entire task 
+            # sequence as one if module runs per task
             suffix = datetime.datetime.now().strftime("%y%m%d%H%M") + "-" + self.koption
             shutil.copy(self.config_file, "%s.%s" % ( self.config_file, suffix))
             return True
@@ -345,11 +369,12 @@ def main():
     if not grub.exists:
         module.fail_json(msg="%s couldn't be found" % grub.config_file )
 
-    out = ''
-    err  = ''
     result = {}
     result['state'] = grub.state
     msg = ""
+    
+    grub._get_distribution()
+    grub._get_release()
 
     if grub.state == 'absent':
         if grub.koption is not None:

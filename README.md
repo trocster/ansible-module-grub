@@ -28,5 +28,4 @@ TODO
 
 - module.supports_check_mode = True
 - Test on grub 0.97 & previous on RHEL-like systems
-- Test on any non-RHEL-type system
-- backup change for entire task sequence, not single tasks
+- backup change for entire task sequence, not single tasks 
