@@ -13,7 +13,6 @@ import re
 import subprocess
 import shutil
 import datetime
-import q
 
 DOCUMENTATION = """
 ---
